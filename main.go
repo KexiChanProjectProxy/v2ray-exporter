@@ -16,6 +16,8 @@ var opts struct {
 	MetricsPath            string `short:"m" long:"metrics-path" description:"Metrics path" value-name:"PATH" default:"/scrape"`
 	V2RayEndpoint          string `short:"e" long:"v2ray-endpoint" description:"V2Ray API endpoint" value-name:"HOST:PORT" default:"127.0.0.1:8080"`
 	ScrapeTimeoutInSeconds int64  `short:"t" long:"scrape-timeout" description:"The timeout in seconds for every individual scrape" value-name:"N" default:"3"`
+	BasicAuthUsername      string `short:"u" long:"basic-auth-username" description:"Basic Auth username" value-name:"USERNAME"`
+	BasicAuthPassword      string `short:"p" long:"basic-auth-password" description:"Basic Auth password" value-name:"PASSWORD"`
 	Version                bool   `long:"version" description:"Display the version and exit"`
 }
 
@@ -51,18 +53,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Check if both Basic Auth username and password are provided
+	if opts.BasicAuthUsername != "" && opts.BasicAuthPassword != "" {
+		http.HandleFunc(opts.MetricsPath, basicAuth(scrapeHandler, opts.BasicAuthUsername, opts.BasicAuthPassword))
+	} else {
+		http.HandleFunc(opts.MetricsPath, scrapeHandler)
+	}
+
 	http.Handle("/metrics", promhttp.Handler())
-	http.HandleFunc(opts.MetricsPath, scrapeHandler)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		_, err := w.Write([]byte(`<html>
-<head><title>V2Ray Exporter</title></head>
-<body>
-<h1>V2Ray Exporter ` + buildVersion + `</h1>
-<p><a href='/metrics'>Exporter Metrics</a></p>
-<p><a href='` + opts.MetricsPath + `'>Scrape V2Ray Metrics</a></p>
-</body>
-</html>
-`))
+		_, err := w.Write([]byte(`403 FORBIDDEN`))
 		if err != nil {
 			logrus.Debugf("Write() err: %s", err)
 		}
@@ -72,4 +72,20 @@ func main() {
 	logrus.Fatal(http.ListenAndServe(opts.Listen, nil))
 
 	defer exporter.conn.Close()
+}
+
+// basicAuth is a middleware function to provide basic authentication.
+func basicAuth(next http.HandlerFunc, username, password string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, pass, ok := r.BasicAuth()
+
+		if !ok || user != username || pass != password {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte("401 Unauthorized\n"))
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	}
 }

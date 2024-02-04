@@ -59,15 +59,6 @@ func main() {
 	} else {
 		http.HandleFunc(opts.MetricsPath, scrapeHandler)
 	}
-
-	http.Handle("/metrics", promhttp.Handler())
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		_, err := w.Write([]byte(`403 FORBIDDEN`))
-		if err != nil {
-			logrus.Debugf("Write() err: %s", err)
-		}
-	})
-
 	logrus.Infof("Server is ready to handle incoming scrape requests.")
 	logrus.Fatal(http.ListenAndServe(opts.Listen, nil))
 
